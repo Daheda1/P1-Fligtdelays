@@ -33,7 +33,7 @@ def label_delay(delay):
         return 'very-late'
     
 #Henter vores datasæt og laver det til pandas dataframe
-df = pd.read_csv('Combined_Flights_2022.csv', nrows = 900000)
+df = pd.read_csv('Combined_Flights_2022.csv', nrows = 1000000)
 
 #DelayLabel bliver tilføjet og apply bruger funktionen label_delay på hele rækken
 df['DelayLabel'] = df['ArrDelayMinutes'].apply(label_delay)
