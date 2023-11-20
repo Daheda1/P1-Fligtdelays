@@ -69,10 +69,12 @@ train_x, test_x, train_y, test_y = train_test_split(df, label, stratify=label, t
 
 rfc = RandomForestClassifier()
 dtc = DecisionTreeClassifier()
-#svc = SVC()
 gnb = GaussianNB()
 sgd = SGDClassifier()
 knc = KNeighborsClassifier()
+
+#svc = SVC()
+
 
 
 models = {rfc, dtc, gnb, sgd, knc}
