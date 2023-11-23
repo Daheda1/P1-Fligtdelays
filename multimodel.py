@@ -4,13 +4,14 @@ import matplotlib.pyplot as plt
 from sklearn.feature_extraction import FeatureHasher
 from sklearn.model_selection import train_test_split
 
-
+import joblib
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import SGDClassifier
 from sklearn.neighbors import KNeighborsClassifier
+from imblearn.over_sampling import SMOTE
 
 
 from sklearn.metrics import (
@@ -33,7 +34,7 @@ def label_delay(delay):
         return 'very-late'
     
 #Henter vores datasæt og laver det til pandas dataframe
-df = pd.read_csv('Combined_Flights_2022.csv', nrows = 1000000)
+df = pd.read_csv('Combined_Flights_2022.csv', nrows = 1000)
 
 #DelayLabel bliver tilføjet og apply bruger funktionen label_delay på hele rækken
 df['DelayLabel'] = df['ArrDelayMinutes'].apply(label_delay)
@@ -46,20 +47,21 @@ relevant_columns = ['Airline', 'Origin', 'Dest',
 #Beholder kun de data vi vil træne på
 df = df[relevant_columns]
 
-#One-hot encoder vores koloner
-df = pd.get_dummies(df, columns=['Airline', 'Origin', 'Dest'], dtype=int)
-
-#skalere vores koloner
-scaler = StandardScaler()
-columns_to_normalize = ["DepTime", "ArrTime", 'Distance']
-df[columns_to_normalize] = scaler.fit_transform(df[columns_to_normalize])
-
 # fjerner alle rækker med tomme felter
 rows_before = len(df)
 df.dropna(inplace=True)
 rows_after = len(df)
 rows_removed = rows_before - rows_after
 print(f"Fjernet {rows_removed} rækker.")
+
+#One-hot encoder vores koloner
+df = pd.get_dummies(df, columns=['Airline', 'Origin', 'Dest'], dtype=int, sparse=True)
+
+#skalere vores koloner
+scaler = StandardScaler()
+columns_to_normalize = ["DepTime", "ArrTime", 'Distance']
+df[columns_to_normalize] = scaler.fit_transform(df[columns_to_normalize])
+
 
 #fjerne DelayLabel fra df og gemmer dem som label
 label = df.pop("DelayLabel")
@@ -73,9 +75,11 @@ gnb = GaussianNB()
 sgd = SGDClassifier()
 knc = KNeighborsClassifier()
 
-#svc = SVC()
+# SMOTE initialisering
+smote = SMOTE(random_state=1)
 
-
+# Brug SMOTE til at over-sample de underrepræsenterede klasser i træningssættet
+train_x, train_y = smote.fit_resample(train_x, train_y)
 
 models = {rfc, dtc, gnb, sgd, knc}
 
@@ -98,17 +102,29 @@ def evaluate_and_save_metrics(train_x, test_x, train_y, test_y, models):
         prec = precision_score(test_y, predicted_values, average='weighted', zero_division=0)
         rec = recall_score(test_y, predicted_values, average='weighted', zero_division=0)
         f1 = f1_score(test_y, predicted_values, average='weighted', zero_division=0)
+        
+        # Calculate specificity for each class
+        specificities = []
+        for c in range(len(conf_matrix)):
+            true_negatives = conf_matrix.sum() - conf_matrix[c,:].sum() - conf_matrix[:,c].sum() + conf_matrix[c,c]
+            false_positives = conf_matrix[:,c].sum() - conf_matrix[c,c]
+            spec = true_negatives / (true_negatives + false_positives)
+            specificities.append(spec)
+        avg_spec = np.mean(specificities)  # Calculate average specificity across all classes
 
         # Save the metrics to a file
-        filename = f'{model_name}.txt'
+        filename = f'{model_name}_metrics.txt'
         with open(filename, 'w') as file:
             file.write(f'Accuracy: {acc}\n')
             file.write(f'Confusion Matrix:\n{conf_matrix}\n')
             file.write(f'Precision (weighted): {prec}\n')
             file.write(f'Recall (weighted): {rec}\n')
             file.write(f'F1 Score (weighted): {f1}\n')
+            file.write(f'Specificity (average): {avg_spec}\n')
+            file.write(f'Specificity for each class: {specificities}\n')
         results.append(filename)
-        print(f"Resultater gemt i filen {model_name}.txt")
+        joblib.dump(model, f'{model_name}.joblib')  # Save the model
+        print(f"Resultater gemt i filen {filename}")
     return results
 
 
