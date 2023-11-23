@@ -83,6 +83,10 @@ train_x, train_y = smote.fit_resample(train_x, train_y)
 
 models = {rfc, dtc, gnb, sgd, knc}
 
+test = pd.concat([test_x, test_y], axis=1)
+
+test.to_csv(r'Testset.csv', index=False, header=True)
+
 train_x = np.ascontiguousarray(train_x)
 test_x = np.ascontiguousarray(test_x)
 
