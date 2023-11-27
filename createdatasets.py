@@ -21,8 +21,8 @@ def label_delay(delay):
 
 #Definere de kolonner vi gerne vil træne på
 relevant_columns = ['Airline', 'Origin', 'Dest', 
-                    'DepTime', 'ArrTime', 'DelayLabel', 
-                    'Distance', 'DayOfWeek', 'DayofMonth', 'Quarter']
+                    'DepTime', 'ArrTime', 'Distance', 
+                    'DayOfWeek', 'DayofMonth', 'Quarter']
 
 dtype_dict = {'Airline': 'category', 'Origin': 'category', 'Dest': 'category',
               'DepTime': 'float32', 'ArrTime': 'float32', 'Distance': 'float32',
@@ -77,7 +77,10 @@ def save_parts_to_temp_files(X, y, num_parts=5):
         start_idx = part * part_size
         end_idx = min((part + 1) * part_size, len(X))
 
-        part_data = pd.concat([X.iloc[start_idx:end_idx], y.iloc[start_idx:end_idx]], axis=1)
+        # Sørg for, at label-kolonnen er korrekt navngivet
+        y_part = y.iloc[start_idx:end_idx].rename('DelayLabel')
+        part_data = pd.concat([X.iloc[start_idx:end_idx], y_part], axis=1)
+        
         temp_file_name = f'temp_part_{part}.csv'
         part_data.to_csv(temp_file_name, index=False)
         temp_files.append(temp_file_name)
@@ -90,10 +93,12 @@ def smote_and_merge_to_single_csv(temp_files, final_csv='Trainset.csv', random_s
 
     for temp_file in temp_files:
         part_data = pd.read_csv(temp_file)
-        X_part, y_part = part_data.iloc[:, :-1], part_data.iloc[:, -1]
+        
+        # Antager at 'DelayLabel' er label-kolonnen
+        X_part, y_part = part_data.drop(columns=['DelayLabel']), part_data['DelayLabel']
 
         X_resampled, y_resampled = smote.fit_resample(X_part, y_part)
-        resampled_part = pd.concat([pd.DataFrame(X_resampled), pd.DataFrame(y_resampled)], axis=1)
+        resampled_part = pd.concat([pd.DataFrame(X_resampled), pd.DataFrame(y_resampled, columns=['DelayLabel'])], axis=1)
 
         if first_file:
             resampled_part.to_csv(final_csv, index=False, mode='w', header=True)
@@ -106,7 +111,6 @@ def smote_and_merge_to_single_csv(temp_files, final_csv='Trainset.csv', random_s
     # Slet midlertidige filer
     for temp_file in temp_files:
         os.remove(temp_file)
-
 
 temp_files = save_parts_to_temp_files(train_x, train_y, num_parts=5)
 smote_and_merge_to_single_csv(temp_files)
