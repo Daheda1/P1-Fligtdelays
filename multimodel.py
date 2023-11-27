@@ -69,6 +69,8 @@ label = df.pop("DelayLabel")
 #Laver et 80/20 split på vores data og labels
 train_x, test_x, train_y, test_y = train_test_split(df, label, stratify=label, test_size=0.20, random_state=1)
 
+df = 0
+
 rfc = RandomForestClassifier()
 dtc = DecisionTreeClassifier()
 gnb = GaussianNB()
@@ -86,6 +88,8 @@ models = {rfc, dtc, gnb, sgd, knc}
 test = pd.concat([test_x, test_y], axis=1)
 
 test.to_csv(r'Testset.csv', index=False, header=True)
+
+test = 0
 
 train_x = np.ascontiguousarray(train_x)
 test_x = np.ascontiguousarray(test_x)
