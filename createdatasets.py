@@ -1,14 +1,80 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import SMOTENC
 from sklearn.preprocessing import StandardScaler
 import warnings
+import time
 import os
 from math import ceil
-
 import gc
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+
+def hot_and_scale(x):
+    #One-hot encoder vores koloner
+    x = pd.get_dummies(x, columns=['Airline', 'Origin', 'Dest'], dtype=int, sparse=True)
+    #skalere vores koloner
+    scaler = StandardScaler()
+    columns_to_normalize = ["DepTime", "ArrTime", 'Distance']
+    x[columns_to_normalize] = scaler.fit_transform(x[columns_to_normalize])
+    return x
+
+def combine_and_save(x, y, path):
+    temp = pd.concat([ y, x], axis=1)
+
+    temp.to_csv(path, index=False, header=True)
+
+def batch_process_and_save(train_x, train_y, categorical_features_indices, batch_size):
+    file_prefix = "train_resampled"
+    batch_filename_list = []
+    smote_nc = SMOTENC(categorical_features=categorical_features_indices, random_state=42)
+    num_samples = len(train_x)
+    num_batches = ceil(num_samples / batch_size)
+
+    for batch_num in range(num_batches):
+        start_idx = batch_num * batch_size
+        end_idx = min((batch_num + 1) * batch_size, num_samples)
+
+        batch_x = train_x[start_idx:end_idx]
+        batch_y = train_y[start_idx:end_idx]
+
+        batch_x_res, batch_y_res = smote_nc.fit_resample(batch_x, batch_y)
+
+        batch_resampled = pd.concat([pd.DataFrame(batch_y_res), pd.DataFrame(batch_x_res)], axis=1)
+        batch_filename = f"{file_prefix}_batch_{batch_num}.csv"
+        batch_resampled.to_csv(batch_filename, index=False, header=True)
+
+        print(f"Batch {batch_num} processed and saved to {batch_filename}")
+        batch_filename_list.append(batch_filename)
+    return batch_filename_list
+
+def process_file(file_name, first_file):
+    print(f"Samler {file_name} til Trainset.csv")
+
+    df = pd.read_csv(file_name)
+    train_y = df.pop("DelayLabel")
+
+    # Apply hot_and_scale function
+    df = hot_and_scale(df)
+
+    # Adding the label back to the dataframe
+    df['DelayLabel'] = train_y
+
+    # Append to the combined file
+    with open("Trainset.csv", 'a') as f:
+        df.to_csv(f, header=first_file, index=False)
+    os.remove(file_name)
+
+def process_and_combine_files(file_names):
+    first_file = True
+
+    for file_name in file_names:
+        if not os.path.exists(file_name):
+            print(f"File not found: {file_name}")
+            continue
+
+        process_file(file_name, first_file)
+        first_file = False
 
 #Denne funktion bestemmer hvilket label "DelayLabel" ender på basseret på forsinkelsen 
 def label_delay(delay):
@@ -19,98 +85,40 @@ def label_delay(delay):
     else:
         return 'very-late'
 
-#Definere de kolonner vi gerne vil træne på
-relevant_columns = ['Airline', 'Origin', 'Dest', 
-                    'DepTime', 'ArrTime', 'Distance', 
-                    'DayOfWeek', 'DayofMonth', 'Quarter']
-
-dtype_dict = {'Airline': 'category', 'Origin': 'category', 'Dest': 'category',
-              'DepTime': 'float32', 'ArrTime': 'float32', 'Distance': 'float32',
-              'DayOfWeek': 'int8', 'DayofMonth': 'int8', 'Quarter': 'int8'}
-    
-#Henter vores datasæt og laver det til pandas dataframe
-df = pd.read_csv('Combined_Flights_2022.csv', usecols=relevant_columns + ['ArrDelayMinutes'], dtype=dtype_dict)
-
-#DelayLabel bliver tilføjet og apply bruger funktionen label_delay på hele rækken
-df['DelayLabel'] = df['ArrDelayMinutes'].apply(label_delay)
-
-# fjerner alle rækker med tomme felter
-rows_before = len(df)
-df.dropna(inplace=True)
-rows_after = len(df)
-rows_removed = rows_before - rows_after
-print(f"Fjernet {rows_removed} rækker.")
-
-#One-hot encoder vores koloner
-df = pd.get_dummies(df, columns=['Airline', 'Origin', 'Dest'], dtype=int, sparse=True)
-
-#skalere vores koloner
-scaler = StandardScaler()
-columns_to_normalize = ["DepTime", "ArrTime", 'Distance']
-df[columns_to_normalize] = scaler.fit_transform(df[columns_to_normalize])
-
-
-#fjerne DelayLabel fra df og gemmer dem som label
-label = df.pop("DelayLabel")
-
-#Laver et 80/20 split på vores data og labels
-train_x, test_x, train_y, test_y = train_test_split(df, label, stratify=label, test_size=0.20, random_state=1)
-
-# Clear the memory of the original dataframe
-del df
-gc.collect()
-
-test = pd.concat([test_x, test_y], axis=1)
-
-test.to_csv(r'Testset.csv', index=False, header=True)
-
-del test
-gc.collect()
-
-
-
-def save_parts_to_temp_files(X, y, num_parts=5):
-    part_size = ceil(len(X) / num_parts)
-    temp_files = []
-
-    for part in range(num_parts):
-        start_idx = part * part_size
-        end_idx = min((part + 1) * part_size, len(X))
-
-        # Sørg for, at label-kolonnen er korrekt navngivet
-        y_part = y.iloc[start_idx:end_idx].rename('DelayLabel')
-        part_data = pd.concat([X.iloc[start_idx:end_idx], y_part], axis=1)
+def get_dataset(nrows):
+    #Definere de kolonner vi gerne vil træne på
+    relevant_columns = ['Airline', 'Origin', 'Dest', 
+                        'DepTime', 'ArrTime', 'Distance', 
+                        'DayOfWeek', 'DayofMonth', 'Quarter']
         
-        temp_file_name = f'temp_part_{part}.csv'
-        part_data.to_csv(temp_file_name, index=False)
-        temp_files.append(temp_file_name)
+    #Henter vores datasæt og laver det til pandas dataframe
+    df = pd.read_csv('Combined_Flights_2022.csv', usecols=relevant_columns + ['ArrDelayMinutes'], nrows = nrows)
 
-    return temp_files
+    #DelayLabel bliver tilføjet og apply bruger funktionen label_delay på hele rækken
+    df['DelayLabel'] = df['ArrDelayMinutes'].apply(label_delay)
 
-def smote_and_merge_to_single_csv(temp_files, final_csv='Trainset.csv', random_state=1):
-    smote = SMOTE(random_state=random_state)
-    first_file = True
+    df.dropna(inplace=True)
 
-    for temp_file in temp_files:
-        part_data = pd.read_csv(temp_file)
-        
-        # Antager at 'DelayLabel' er label-kolonnen
-        X_part, y_part = part_data.drop(columns=['DelayLabel']), part_data['DelayLabel']
+    return df.pop("DelayLabel"), df
 
-        X_resampled, y_resampled = smote.fit_resample(X_part, y_part)
-        resampled_part = pd.concat([pd.DataFrame(X_resampled), pd.DataFrame(y_resampled, columns=['DelayLabel'])], axis=1)
+def main():
+    label, df = get_dataset(5000000)
+    print("Datasæt indlæst")
 
-        if first_file:
-            resampled_part.to_csv(final_csv, index=False, mode='w', header=True)
-            first_file = False
-        else:
-            resampled_part.to_csv(final_csv, index=False, mode='a', header=False)
+    train_x, test_x, train_y, test_y = train_test_split(df, label, stratify=label, test_size=0.20, random_state=1)
+    print("80/20 Split lavet")
+    del df
+    del label
 
-        del part_data, X_part, y_part, X_resampled, y_resampled, resampled_part  # Frigør hukommelse
+    test_x = hot_and_scale(test_x)
 
-    # Slet midlertidige filer
-    for temp_file in temp_files:
-        os.remove(temp_file)
+    combine_and_save(test_x, test_y, "Testset.csv")
+    print("Testsæt gemt")
+    print("Påbegynder SMOTE")
+    categorical_features_indices = [0, 1, 2]
+    filenames = batch_process_and_save(train_x, train_y, categorical_features_indices, 500000)
+    print("SMOTE Afsluttet")
+    process_and_combine_files(filenames)
+    print("Træningssæt gemt")
 
-temp_files = save_parts_to_temp_files(train_x, train_y, num_parts=5)
-smote_and_merge_to_single_csv(temp_files)
+main()
