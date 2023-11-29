@@ -26,6 +26,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
     
 #Henter vores datasæt og laver det til pandas dataframe
 df = pd.read_csv('Trainset.csv')
+print("Datasæt indlæst")
+
 
 #Laver et 80/20 split på vores data og labels
 train_y = df.pop("DelayLabel")

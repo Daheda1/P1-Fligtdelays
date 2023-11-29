@@ -1,6 +1,7 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from imblearn.over_sampling import SMOTENC
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import StandardScaler
 import warnings
 import time
@@ -9,19 +10,35 @@ from math import ceil
 import gc
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+def create_categories_dict(df, categorical_columns):
+    categories_dict = {}
+    for column in categorical_columns:
+        categories_dict[column] = sorted(df[column].unique())
+    return categories_dict
 
-def hot_and_scale(x):
-    #One-hot encoder vores koloner
-    x = pd.get_dummies(x, columns=['Airline', 'Origin', 'Dest'], dtype=int, sparse=True)
-    #skalere vores koloner
+def hot_and_scale(x, categories_dict):
+    categorical_columns = ['Airline', 'Origin', 'Dest']
+    continuous_columns = ["DepTime", "ArrTime", 'Distance']
+
+    # Opret OneHotEncoder med de givne kategorier
+    encoder = OneHotEncoder(categories=[categories_dict[col] for col in categorical_columns],
+                            drop=None, sparse=False, handle_unknown='ignore')
+
+    # Anvend encoder på kategoriske kolonner
+    x_categorical = encoder.fit_transform(x[categorical_columns])
+
+    # Skalér kontinuerlige kolonner
     scaler = StandardScaler()
-    columns_to_normalize = ["DepTime", "ArrTime", 'Distance']
-    x[columns_to_normalize] = scaler.fit_transform(x[columns_to_normalize])
-    return x
+    x_continuous = scaler.fit_transform(x[continuous_columns])
+
+    # Kombiner tilbage til en DataFrame
+    x_encoded = pd.DataFrame(x_categorical, columns=encoder.get_feature_names_out(categorical_columns), index=x.index)
+    x_continuous = pd.DataFrame(x_continuous, columns=continuous_columns, index=x.index)
+
+    return pd.concat([x_encoded, x_continuous], axis=1)
 
 def combine_and_save(x, y, path):
     temp = pd.concat([ y, x], axis=1)
-
     temp.to_csv(path, index=False, header=True)
 
 def batch_process_and_save(train_x, train_y, categorical_features_indices, batch_size):
@@ -48,14 +65,14 @@ def batch_process_and_save(train_x, train_y, categorical_features_indices, batch
         batch_filename_list.append(batch_filename)
     return batch_filename_list
 
-def process_file(file_name, first_file):
+def process_file(file_name, first_file, categories_dict):
     print(f"Samler {file_name} til Trainset.csv")
 
     df = pd.read_csv(file_name)
     train_y = df.pop("DelayLabel")
 
     # Apply hot_and_scale function
-    df = hot_and_scale(df)
+    df = hot_and_scale(df, categories_dict)
 
     # Adding the label back to the dataframe
     df['DelayLabel'] = train_y
@@ -65,7 +82,7 @@ def process_file(file_name, first_file):
         df.to_csv(f, header=first_file, index=False)
     os.remove(file_name)
 
-def process_and_combine_files(file_names):
+def process_and_combine_files(file_names, categories_dict):
     first_file = True
 
     for file_name in file_names:
@@ -73,7 +90,7 @@ def process_and_combine_files(file_names):
             print(f"File not found: {file_name}")
             continue
 
-        process_file(file_name, first_file)
+        process_file(file_name, first_file, categories_dict)
         first_file = False
 
 #Denne funktion bestemmer hvilket label "DelayLabel" ender på basseret på forsinkelsen 
@@ -102,23 +119,26 @@ def get_dataset(nrows):
     return df.pop("DelayLabel"), df
 
 def main():
-    label, df = get_dataset(5000000)
+    label, df = get_dataset(100000)
     print("Datasæt indlæst")
+
+    categorical_columns = ['Airline', 'Origin', 'Dest']
+    categories_dict = create_categories_dict(df, categorical_columns)
 
     train_x, test_x, train_y, test_y = train_test_split(df, label, stratify=label, test_size=0.20, random_state=1)
     print("80/20 Split lavet")
     del df
     del label
 
-    test_x = hot_and_scale(test_x)
+    test_x = hot_and_scale(test_x, categories_dict)
 
     combine_and_save(test_x, test_y, "Testset.csv")
     print("Testsæt gemt")
     print("Påbegynder SMOTE")
     categorical_features_indices = [0, 1, 2]
-    filenames = batch_process_and_save(train_x, train_y, categorical_features_indices, 500000)
+    filenames = batch_process_and_save(train_x, train_y, categorical_features_indices, 10000)
     print("SMOTE Afsluttet")
-    process_and_combine_files(filenames)
+    process_and_combine_files(filenames, categories_dict)
     print("Træningssæt gemt")
 
 main()
