@@ -1,54 +1,64 @@
-import joblib
 import pandas as pd
-from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score, f1_score
 import numpy as np
+from sklearn.model_selection import cross_val_score
+import joblib
 
-def load_test_data(file_path):
-    # Indlæser data fra CSV-fil
-    data = pd.read_csv(file_path)
-    # Antager at "DelayLabel" er kolonnen for labels
-    X_test = data.drop('DelayLabel', axis=1)
-    y_test = data['DelayLabel']
-    return X_test, y_test
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import SGDClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from imblearn.over_sampling import SMOTE
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
-def calculate_specificity(y_true, y_pred, labels):
-    cm = confusion_matrix(y_true, y_pred, labels=labels)
-    specificity = []
-    for i in range(len(labels)):
-        tn = cm.sum() - (cm[i, :].sum() + cm[:, i].sum() - cm[i, i])
-        fp = cm[:, i].sum() - cm[i, i]
-        spec = tn / (tn + fp) if (tn + fp) != 0 else 0
-        specificity.append(spec)
-    return np.mean(specificity)
+# Henter vores datasæt og laver det til en pandas dataframe
+df = pd.read_csv('Trainset.csv')
+print("Datasæt indlæst")
 
-def evaluate_model(model, X_test, y_test, labels):
-    y_pred = model.predict(X_test)
-    scores = {
-        "accuracy": accuracy_score(y_test, y_pred),
-        "precision": precision_score(y_test, y_pred, labels=labels, average='macro'),
-        "recall": recall_score(y_test, y_pred, labels=labels, average='macro'),
-        "f1_score": f1_score(y_test, y_pred, labels=labels, average='macro'),
-        "specificity": calculate_specificity(y_test, y_pred, labels)
-    }
-    return scores
+# Opdeling af data og labels
+train_y = df.pop("DelayLabel")
+train_x = df
 
-def main(model_files):
-    X_test, y_test = load_test_data("Testset.csv")
-    labels = sorted(y_test.unique())  # Antager at labels er sorteret numerisk eller alfabetisk
-    all_scores = {}
+# Initialisering af modeller
+rfc = RandomForestClassifier()
+dtc = DecisionTreeClassifier()
+gnb = GaussianNB()
+sgd = SGDClassifier()
+knc = KNeighborsClassifier()
 
-    for file in model_files:
-        model = joblib.load(file)
-        scores = evaluate_model(model, X_test, y_test, labels)
-        all_scores[file] = scores
+# SMOTE initialisering
+smote = SMOTE(random_state=1)
 
-    with open("model_performance.txt", "w") as f:
-        for model_name, scores in all_scores.items():
-            f.write(f"Model: {model_name}\n")
-            for metric, score in scores.items():
-                f.write(f"{metric}: {score}\n")
-            f.write("\n")
+# Liste af modeller til krydsvalidering og gemning
+models = [rfc, dtc, gnb, sgd, knc]
 
-# Eksempel på brug
-model_files = ["KNeighborsClassifier.joblib", "RandomForestClassifier.joblib", "GaussianNB.joblib", "DecisionTreeClassifier.joblib", "SGDClassifier.joblib"]
-main(model_files)
+# Konverter train_x til et contiguous array for at undgå potentielle problemer
+train_x = np.ascontiguousarray(train_x)
+
+def evaluate_and_save_models(train_x, train_y, models):
+    with open('model_cross_val_scores.txt', 'w') as file:
+        for model in models:
+            # Modelnavn
+            model_name = model.__class__.__name__
+            print(f"Kører nu krydsvalidering for {model_name}")
+
+            # Anvend SMOTE
+            X_res, y_res = smote.fit_resample(train_x, train_y)
+
+            # Krydsvalidering
+            scores = cross_val_score(model, X_res, y_res, cv=5)
+
+            # Træne model på hele datasættet
+            model.fit(X_res, y_res)
+
+            # Gemme den trænede model
+            joblib.dump(model, f'{model_name}.joblib')
+
+            # Skrive resultaterne til filen
+            file.write(f"Krydsvalideringsscores for {model_name}:\n")
+            file.write("\n".join([str(score) for score in scores]))
+            file.write("\n\n")
+
+# Kør evalueringen og gem modellerne og krydsvalideringsscorerne
+evaluate_and_save_models(train_x, train_y, models)

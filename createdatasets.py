@@ -4,10 +4,8 @@ from imblearn.over_sampling import SMOTENC
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import StandardScaler
 import warnings
-import time
 import os
 from math import ceil
-import gc
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 def create_categories_dict(df, categorical_columns):
@@ -119,7 +117,7 @@ def get_dataset(nrows):
     return df.pop("DelayLabel"), df
 
 def main():
-    label, df = get_dataset(50000000)
+    label, df = get_dataset(20000)
     print("Datasæt indlæst")
 
     categorical_columns = ['Airline', 'Origin', 'Dest']
@@ -136,7 +134,7 @@ def main():
     print("Testsæt gemt")
     print("Påbegynder SMOTE")
     categorical_features_indices = [0, 1, 2]
-    filenames = batch_process_and_save(train_x, train_y, categorical_features_indices, 500000)
+    filenames = batch_process_and_save(train_x, train_y, categorical_features_indices, 5000)
     print("SMOTE Afsluttet")
     process_and_combine_files(filenames, categories_dict)
     print("Træningssæt gemt")
